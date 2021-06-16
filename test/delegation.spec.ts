@@ -1009,4 +1009,51 @@ makeSuite('Delegation', (testEnv: TestEnv) => {
       'User1 power should be zero due transfered all the funds'
     );
   });
+
+  it('User 2 partially delegates to both User 3 and User 4', async () => {
+    const {users} = testEnv;
+
+    const user2 = users[2];
+    const user3 = users[3];
+    const user4 = users[4];
+
+    await aaveInstance.connect(user2.signer).delegate(user2.address);
+    await aaveInstance.connect(user3.signer).delegate(user3.address);
+    await aaveInstance.connect(user4.signer).delegate(user4.address);
+
+    // reset delegation for all 3 users back to themselves
+    const priorVotingPowerUser2 = await aaveInstance.getPowerCurrent(user2.address, '0');
+    const priorVotingPowerUser3 = await aaveInstance.getPowerCurrent(user3.address, '0');
+    const priorVotingPowerUser4 = await aaveInstance.getPowerCurrent(user4.address, '0');
+
+    // make sure we're not going to be delegating zero
+    expect(priorVotingPowerUser2).to.not.equal('0');
+
+    // user 2 delegates half its balance to user 3, and a quarter of its balance to user 4
+    const delegateAmountUser3 = priorVotingPowerUser2.div(2);
+    const delegateAmountUser4 = priorVotingPowerUser2.div(4);
+    await waitForTx(await aaveInstance.connect(user2.signer).setPartialDelegationByType(user3.address, '0', delegateAmountUser3));
+    await waitForTx(await aaveInstance.connect(user2.signer).setPartialDelegationByType(user4.address, '0', delegateAmountUser4));
+
+    let resultantVotingPowerUser2 = await aaveInstance.getPowerCurrent(user2.address, '0');
+    let resultantVotingPowerUser3 = await aaveInstance.getPowerCurrent(user3.address, '0');
+    let resultantVotingPowerUser4 = await aaveInstance.getPowerCurrent(user4.address, '0');
+
+    // check that the voting power of each user has changed as expected
+    const expectedVotingPowerUser2 = priorVotingPowerUser2.sub(delegateAmountUser3).sub(delegateAmountUser4);
+    const expectedVotingPowerUser3 = priorVotingPowerUser3.add(delegateAmountUser3);
+    const expectedVotingPowerUser4 = priorVotingPowerUser4.add(delegateAmountUser4);
+    expect(resultantVotingPowerUser2).to.be.equal(expectedVotingPowerUser2);
+    expect(resultantVotingPowerUser3).to.be.equal(expectedVotingPowerUser3);
+    expect(resultantVotingPowerUser4).to.be.equal(expectedVotingPowerUser4);
+
+    // reset the partial delegation, make sure we did return to the initial state
+    await waitForTx(await aaveInstance.connect(user2.signer).clearAllPartialDelegations('0'));
+    resultantVotingPowerUser2 = await aaveInstance.getPowerCurrent(user2.address, '0');
+    resultantVotingPowerUser3 = await aaveInstance.getPowerCurrent(user3.address, '0');
+    resultantVotingPowerUser4 = await aaveInstance.getPowerCurrent(user4.address, '0');
+    expect(resultantVotingPowerUser2).to.be.equal(priorVotingPowerUser2);
+    expect(resultantVotingPowerUser3).to.be.equal(priorVotingPowerUser3);
+    expect(resultantVotingPowerUser4).to.be.equal(priorVotingPowerUser4);
+  });
 });

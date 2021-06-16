@@ -341,14 +341,19 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
     return _totalAmountPartiallyDelegated(delegator, delegationType) > 0;
   }
 
-  function clearAllPartialDelegations(address delegator, DelegationType delegationType)
-    public
+  function clearAllPartialDelegations(DelegationType delegationType) external {
+    _clearAllPartialDelegations(msg.sender, delegationType);
+  }
+
+  function _clearAllPartialDelegations(address delegator, DelegationType delegationType)
+    internal
     returns (bool)
   {
     (,,, mapping(address => PartialDelegationInfo) storage partialDelegations) = _getDelegationDataByType(delegationType);
     PartialDelegationInfo storage delegationInfo = partialDelegations[delegator];
 
-    for (uint i = 0; i < delegationInfo.delegates.length; i++) {
+    uint numDelegates = delegationInfo.delegates.length;
+    for (uint i = 0; i < numDelegates; i++) {
       address delegatee = delegationInfo.delegates[delegationInfo.delegates.length-1];
       uint128 amountDelegated = delegationInfo.delegations[delegatee].amount;
       delegationInfo.delegations[delegatee].amount = 0;
@@ -356,6 +361,10 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
       delegationInfo.delegates.pop();
     }
     delegationInfo.totalDelegated = 0;
+  }
+
+  function setPartialDelegationByType(address delegatee, DelegationType delegationType, uint128 amount) external {
+    _setPartialDelegationByType(msg.sender, delegatee, delegationType, amount);
   }
 
   function _setPartialDelegationByType(
