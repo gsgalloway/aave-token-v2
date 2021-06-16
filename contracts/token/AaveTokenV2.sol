@@ -118,8 +118,6 @@ contract AaveTokenV2 is GovernancePowerDelegationERC20, VersionedInitializable {
     address votingFromDelegatee = _getDelegatee(from, _votingDelegates);
     address votingToDelegatee = _getDelegatee(to, _votingDelegates);
 
-    // TODO: if transfer causes balance to fall below total delegated, either raise error or clear out all partial delegations
-
     _moveDelegatesByType(
       votingFromDelegatee,
       votingToDelegatee,
@@ -136,6 +134,21 @@ contract AaveTokenV2 is GovernancePowerDelegationERC20, VersionedInitializable {
       amount,
       DelegationType.PROPOSITION_POWER
     );
+
+    // if this transfer causes the total balance of the sender to drop below the sum of all its partial
+    // delegations, then need to clear out all the partial delegations for the sender
+    if (votingFromDelegatee == from) {
+      uint256 partiallyDelegated = _totalAmountPartiallyDelegated(from, DelegationType.VOTING_POWER);
+      if (balanceOf(from) - amount < partiallyDelegated) {
+        _clearAllPartialDelegations(from, DelegationType.VOTING_POWER);
+      }
+    }
+    if (propPowerFromDelegatee == from) {
+      uint256 partiallyDelegated = _totalAmountPartiallyDelegated(from, DelegationType.PROPOSITION_POWER);
+      if (balanceOf(from) - amount < partiallyDelegated) {
+        _clearAllPartialDelegations(from, DelegationType.PROPOSITION_POWER);
+      }
+    }
 
     // caching the aave governance address to avoid multiple state loads
     ITransferHook aaveGovernance = _aaveGovernance;

@@ -432,6 +432,7 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
       delegationInfo.delegations[delegatee].amount = amount;
     }
 
+    // TODO: this can never happen because _moveDelegatesByType will raise a subtractionUnderflow error instead
     require(delegationInfo.totalDelegated <= balanceOf(delegator), "GovernancePowerDelegationERC20: Amount delegated would exceed total balance");
   }
 }
