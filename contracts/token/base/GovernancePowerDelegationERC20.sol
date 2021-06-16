@@ -342,6 +342,7 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
   }
 
   function clearAllPartialDelegations(address delegator, DelegationType delegationType)
+    public
     returns (bool)
   {
     (,,, mapping(address => PartialDelegationInfo) storage partialDelegations) = _getDelegationDataByType(delegationType);
