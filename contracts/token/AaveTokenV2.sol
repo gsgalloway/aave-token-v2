@@ -48,6 +48,8 @@ contract AaveTokenV2 is GovernancePowerDelegationERC20, VersionedInitializable {
 
   mapping(address => address) internal _propositionPowerDelegates;
 
+  mapping(DelegationType => mapping(address => PartialDelegationInfo)) _partialDelegations;
+
   constructor() public ERC20(NAME, SYMBOL) {}
 
   /**
@@ -116,6 +118,8 @@ contract AaveTokenV2 is GovernancePowerDelegationERC20, VersionedInitializable {
     address votingFromDelegatee = _getDelegatee(from, _votingDelegates);
     address votingToDelegatee = _getDelegatee(to, _votingDelegates);
 
+    // TODO: raise error if transfer causes balance to fall below total delegated
+
     _moveDelegatesByType(
       votingFromDelegatee,
       votingToDelegatee,
@@ -147,16 +151,18 @@ contract AaveTokenV2 is GovernancePowerDelegationERC20, VersionedInitializable {
     returns (
       mapping(address => mapping(uint256 => Snapshot)) storage, //snapshots
       mapping(address => uint256) storage, //snapshots count
-      mapping(address => address) storage //delegatees list
+      mapping(address => address) storage, //delegatees list
+      mapping(address => PartialDelegationInfo) storage //partial delegation info
     )
   {
     if (delegationType == DelegationType.VOTING_POWER) {
-      return (_votingSnapshots, _votingSnapshotsCounts, _votingDelegates);
+      return (_votingSnapshots, _votingSnapshotsCounts, _votingDelegates, _partialDelegations[delegationType]);
     } else {
       return (
         _propositionPowerSnapshots,
         _propositionPowerSnapshotsCounts,
-        _propositionPowerDelegates
+        _propositionPowerDelegates,
+        _partialDelegations[delegationType]
       );
     }
   }

@@ -28,6 +28,17 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
     uint128 value;
   }
 
+  struct PartialDelegationRecord {
+    uint128 amount;
+    uint indexIntoDelegatesList;
+  }
+
+  struct PartialDelegationInfo {
+    address[] delegates;
+    mapping(address => PartialDelegationRecord) delegations;
+    uint256 totalDelegated;
+  }
+
   /**
    * @dev delegates one specific power to a delegatee
    * @param delegatee the user which delegated power has changed
@@ -56,7 +67,7 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
     view
     returns (address)
   {
-    (, , mapping(address => address) storage delegates) = _getDelegationDataByType(delegationType);
+    (, , mapping(address => address) storage delegates, ) = _getDelegationDataByType(delegationType);
 
     return _getDelegatee(delegator, delegates);
   }
@@ -75,7 +86,7 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
     (
       mapping(address => mapping(uint256 => Snapshot)) storage snapshots,
       mapping(address => uint256) storage snapshotsCounts,
-
+      ,
     ) = _getDelegationDataByType(delegationType);
 
     return _searchByBlockNumber(snapshots, snapshotsCounts, user, block.number);
@@ -93,7 +104,7 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
     (
       mapping(address => mapping(uint256 => Snapshot)) storage snapshots,
       mapping(address => uint256) storage snapshotsCounts,
-
+      ,
     ) = _getDelegationDataByType(delegationType);
 
     return _searchByBlockNumber(snapshots, snapshotsCounts, user, blockNumber);
@@ -121,7 +132,7 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
   ) internal {
     require(delegatee != address(0), 'INVALID_DELEGATEE');
 
-    (, , mapping(address => address) storage delegates) = _getDelegationDataByType(delegationType);
+    (, , mapping(address => address) storage delegates, ) = _getDelegationDataByType(delegationType);
 
     uint256 delegatorBalance = balanceOf(delegator);
 
@@ -153,7 +164,7 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
     (
       mapping(address => mapping(uint256 => Snapshot)) storage snapshots,
       mapping(address => uint256) storage snapshotsCounts,
-
+      ,
     ) = _getDelegationDataByType(delegationType);
 
     if (from != address(0)) {
@@ -258,7 +269,8 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
     returns (
       mapping(address => mapping(uint256 => Snapshot)) storage, //snapshots
       mapping(address => uint256) storage, //snapshots count
-      mapping(address => address) storage //delegatees list
+      mapping(address => address) storage, //delegatees list
+      mapping(address => PartialDelegationInfo) storage //partial delegation info
     );
 
   /**
@@ -309,5 +321,73 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
     }
 
     return previousDelegatee;
+  }
+
+  function _totalAmountPartiallyDelegated(address delegator, DelegationType delegationType)
+    internal
+    view
+    returns (uint256)
+  {
+    (, , , mapping(address => PartialDelegationInfo) storage partialDelegations) = _getDelegationDataByType(delegationType);
+    return partialDelegations[delegator].totalDelegated;
+  }
+
+  function _isPartiallyDelegated(address delegator, DelegationType delegationType)
+    internal
+    view
+    returns (bool)
+  {
+    return _totalAmountPartiallyDelegated(delegator, delegationType) > 0;
+  }
+
+  function _setPartialDelegationByType(
+    address delegator,
+    address delegatee,
+    DelegationType delegationType,
+    uint128 amount
+  ) internal {
+    require(delegatee != address(0), 'INVALID_DELEGATEE');
+
+    ( , , 
+      mapping(address => address) storage delegates,
+      mapping(address => PartialDelegationInfo) storage partialDelegations
+    ) = _getDelegationDataByType(delegationType);
+
+    require(_getDelegatee(delegator, delegates) == delegator, 'GovernancePowerDelegationERC20: Cannot use partial delegation while a full delegate is set');
+
+    PartialDelegationInfo storage delegationInfo = partialDelegations[delegator];
+
+    // caller wants to remove this delegatee from their list of delegates
+    if (amount == 0) {
+      if (delegationInfo.delegations[delegatee].amount == 0) return; // delegatee is already absent from the delegator's list
+
+      // remove `delegate` by overwriting it with last element of `delegates` array then decrementing array size 
+      uint indexOfDelegatee = delegationInfo.delegations[delegatee].indexIntoDelegatesList;
+      address delegateToSwap = delegationInfo.delegates[delegationInfo.delegates.length - 1];
+      delegationInfo.delegations[delegateToSwap].indexIntoDelegatesList = indexOfDelegatee;
+      delegationInfo.delegates[indexOfDelegatee] = delegateToSwap;
+      delegationInfo.delegates.pop();
+
+      // zero out the amount delegated to delegatee
+      delegationInfo.totalDelegated -= delegationInfo.delegations[delegatee].amount;
+      delegationInfo.delegations[delegatee].amount = 0;
+      return;
+    }
+
+    // caller wants to add a new delegate
+    if (delegationInfo.delegations[delegatee].amount == 0) {
+      delegationInfo.delegations[delegatee].amount = amount;
+      delegationInfo.delegations[delegatee].indexIntoDelegatesList = delegationInfo.delegates.length;
+      delegationInfo.delegates.push(delegatee);
+      delegationInfo.totalDelegated += amount;
+    }
+    // caller is updating an existing delegate
+    else {
+      delegationInfo.totalDelegated -= delegationInfo.delegations[delegatee].amount;
+      delegationInfo.totalDelegated += amount;
+      delegationInfo.delegations[delegatee].amount = amount;
+    }
+
+    require(delegationInfo.totalDelegated <= balanceOf(delegator), "GovernancePowerDelegationERC20: Amount delegated would exceed total balance");
   }
 }
