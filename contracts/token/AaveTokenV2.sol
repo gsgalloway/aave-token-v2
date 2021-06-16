@@ -118,7 +118,7 @@ contract AaveTokenV2 is GovernancePowerDelegationERC20, VersionedInitializable {
     address votingFromDelegatee = _getDelegatee(from, _votingDelegates);
     address votingToDelegatee = _getDelegatee(to, _votingDelegates);
 
-    // TODO: raise error if transfer causes balance to fall below total delegated
+    // TODO: if transfer causes balance to fall below total delegated, either raise error or clear out all partial delegations
 
     _moveDelegatesByType(
       votingFromDelegatee,

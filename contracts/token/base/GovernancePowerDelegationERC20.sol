@@ -131,6 +131,7 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
     DelegationType delegationType
   ) internal {
     require(delegatee != address(0), 'INVALID_DELEGATEE');
+    require(!_isPartiallyDelegated(delegator, delegationType), 'GovernancePowerDelegationERC20: Must unset current delegate before using partial delegation');
 
     (, , mapping(address => address) storage delegates, ) = _getDelegationDataByType(delegationType);
 
@@ -340,6 +341,22 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
     return _totalAmountPartiallyDelegated(delegator, delegationType) > 0;
   }
 
+  function clearAllPartialDelegations(address delegator, DelegationType delegationType)
+    returns (bool)
+  {
+    (,,, mapping(address => PartialDelegationInfo) storage partialDelegations) = _getDelegationDataByType(delegationType);
+    PartialDelegationInfo storage delegationInfo = partialDelegations[delegator];
+
+    for (uint i = 0; i < delegationInfo.delegates.length; i++) {
+      address delegatee = delegationInfo.delegates[delegationInfo.delegates.length-1];
+      uint128 amountDelegated = delegationInfo.delegations[delegatee].amount;
+      delegationInfo.delegations[delegatee].amount = 0;
+      _moveDelegatesByType(delegatee, delegator, amountDelegated, delegationType);
+      delegationInfo.delegates.pop();
+    }
+    delegationInfo.totalDelegated = 0;
+  }
+
   function _setPartialDelegationByType(
     address delegator,
     address delegatee,
@@ -348,7 +365,8 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
   ) internal {
     require(delegatee != address(0), 'INVALID_DELEGATEE');
 
-    ( , , 
+    ( 
+      ,,
       mapping(address => address) storage delegates,
       mapping(address => PartialDelegationInfo) storage partialDelegations
     ) = _getDelegationDataByType(delegationType);
@@ -357,9 +375,11 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
 
     PartialDelegationInfo storage delegationInfo = partialDelegations[delegator];
 
+    uint128 amountPreviouslyDelegated = delegationInfo.delegations[delegatee].amount;
+
     // caller wants to remove this delegatee from their list of delegates
     if (amount == 0) {
-      if (delegationInfo.delegations[delegatee].amount == 0) return; // delegatee is already absent from the delegator's list
+      if (amountPreviouslyDelegated == 0) return; // delegatee is already absent from the delegator's list
 
       // remove `delegate` by overwriting it with last element of `delegates` array then decrementing array size 
       uint indexOfDelegatee = delegationInfo.delegations[delegatee].indexIntoDelegatesList;
@@ -369,22 +389,36 @@ abstract contract GovernancePowerDelegationERC20 is ERC20, IGovernancePowerDeleg
       delegationInfo.delegates.pop();
 
       // zero out the amount delegated to delegatee
-      delegationInfo.totalDelegated -= delegationInfo.delegations[delegatee].amount;
+      delegationInfo.totalDelegated -= amountPreviouslyDelegated;
       delegationInfo.delegations[delegatee].amount = 0;
+
+      // update snapshot
+      _moveDelegatesByType(delegatee, delegator, amountPreviouslyDelegated, delegationType);
+
       return;
     }
 
     // caller wants to add a new delegate
-    if (delegationInfo.delegations[delegatee].amount == 0) {
+    if (amountPreviouslyDelegated == 0) {  
       delegationInfo.delegations[delegatee].amount = amount;
       delegationInfo.delegations[delegatee].indexIntoDelegatesList = delegationInfo.delegates.length;
       delegationInfo.delegates.push(delegatee);
       delegationInfo.totalDelegated += amount;
+      _moveDelegatesByType(delegator, delegatee, amount, delegationType);
     }
-    // caller is updating an existing delegate
+    // this amount is already delegated to this delegatee
+    else if (amountPreviouslyDelegated == amount){return;}
+    // caller is updating an existing delegate's amount
     else {
-      delegationInfo.totalDelegated -= delegationInfo.delegations[delegatee].amount;
-      delegationInfo.totalDelegated += amount;
+      if (amount > amountPreviouslyDelegated) {
+        // adding more power to this delegate
+        delegationInfo.totalDelegated += amount - amountPreviouslyDelegated;
+        _moveDelegatesByType(delegator, delegatee, amount - amountPreviouslyDelegated, delegationType);
+      } else {
+        // removing power from this delegate
+        delegationInfo.totalDelegated -= amountPreviouslyDelegated - amount;
+        _moveDelegatesByType(delegatee, delegator, amountPreviouslyDelegated - amount, delegationType);
+      }
       delegationInfo.delegations[delegatee].amount = amount;
     }
 
